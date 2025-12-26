@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDLC Multi-Agent System</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>🤖 SDLC Multi-Agent System</h1>
+        <div class="stats">
+            <span id="message-count">Messages: 0</span>
+            <span id="tool-count">Tool Calls: 0</span>
+            <span id="connection-status">⚪ Disconnected</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Task Creation -->
+        <section class="create-task">
+            <input type="text" id="task-title" placeholder="Task Title">
+            <textarea id="task-description" placeholder="Task Description (what should be done?)"></textarea>
+            <button id="create-btn">Create Task</button>
+        </section>
+
+        <!-- Kanban Board -->
+        <section class="board">
+            <div class="column" data-status="todo">
+                <h2>📋 Todo</h2>
+                <div class="tasks" id="todo-tasks"></div>
+            </div>
+            <div class="column" data-status="planning">
+                <h2>📝 Planning</h2>
+                <div class="tasks" id="planning-tasks"></div>
+            </div>
+            <div class="column" data-status="building">
+                <h2>🔨 Building</h2>
+                <div class="tasks" id="building-tasks"></div>
+            </div>
+            <div class="column" data-status="reviewing">
+                <h2>🔍 Reviewing</h2>
+                <div class="tasks" id="reviewing-tasks"></div>
+            </div>
+            <div class="column" data-status="shipped">
+                <h2>🚀 Shipped</h2>
+                <div class="tasks" id="shipped-tasks"></div>
+            </div>
+        </section>
+
+        <!-- Agent Activity Log -->
+        <section class="activity-log">
+            <h2>Agent Activity</h2>
+            <div id="activity-feed"></div>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
