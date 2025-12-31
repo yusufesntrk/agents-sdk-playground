@@ -34,7 +34,11 @@ from .models import (
     FileLockModel, FileLockStatusResponse,
     # Chat Models
     ChatRequest, ChatResponse,
+    # Session Models
+    SessionResponse, SessionListResponse, CreateSessionRequest, RenameSessionRequest,
+    ChatMessageResponse, SessionStatus as ModelSessionStatus,
 )
+from .sessions import session_manager, SessionStatus
 from .websocket import manager
 from .auth import router as auth_router, get_current_user
 from .repos import router as repos_router
@@ -383,6 +387,13 @@ async def start_agent(agent_id: str, prompt: str = "Continue your work"):
         raise HTTPException(status_code=400, detail="Agent is already running")
 
     try:
+        # FIX: cwd aus repo holen statt WORKING_DIR
+        cwd = WORKING_DIR
+        if agent.repo_id and agent.repo_id in connected_repos:
+            repo = connected_repos[agent.repo_id]
+            if repo.local_path:
+                cwd = repo.local_path
+
         # Spawn a new execution for the existing agent
         updated_agent = await spawner.spawn_agent(
             name=agent.name,
@@ -390,7 +401,9 @@ async def start_agent(agent_id: str, prompt: str = "Continue your work"):
             system_prompt=agent.system_prompt,
             parent_id=agent.parent_id,
             allowed_tools=agent.allowed_tools,
-            cwd=WORKING_DIR,
+            cwd=cwd,
+            repo_id=agent.repo_id,
+            repo_name=agent.repo_name,
         )
         return agent_to_response(updated_agent)
     except Exception as e:
@@ -478,6 +491,116 @@ async def broadcast_agent_message(agent_id: str, content: dict):
     return {"status": "broadcast", "message_count": len(messages)}
 
 
+# ==================== Session API ====================
+
+def session_to_response(session) -> SessionResponse:
+    """Convert internal ChatSession to response model."""
+    return SessionResponse(
+        id=session.id,
+        repo_id=session.repo_id,
+        name=session.name,
+        status=ModelSessionStatus(session.status.value),
+        messages=[
+            ChatMessageResponse(
+                id=m.id,
+                role=m.role,
+                content=m.content,
+                timestamp=m.timestamp.isoformat(),
+                agent_id=m.agent_id,
+                tool_calls=m.tool_calls,
+            )
+            for m in session.messages
+        ],
+        agent_id=session.agent_id,
+        created_at=session.created_at.isoformat(),
+        updated_at=session.updated_at.isoformat(),
+        message_count=len(session.messages),
+    )
+
+
+@app.post("/api/sessions", response_model=SessionResponse)
+async def create_session(request: CreateSessionRequest):
+    """Create a new chat session for a repo."""
+    if request.repo_id not in connected_repos:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo = connected_repos[request.repo_id]
+    if repo.status not in ["ready", "linked"]:
+        raise HTTPException(status_code=400, detail="Repository not ready")
+
+    session = session_manager.create_session(request.repo_id, request.name)
+
+    # Broadcast session created
+    await manager.broadcast({
+        "type": "session_created",
+        "session": session.to_dict(),
+    })
+
+    return session_to_response(session)
+
+
+@app.get("/api/sessions/repo/{repo_id}", response_model=SessionListResponse)
+async def get_repo_sessions(repo_id: str):
+    """Get all sessions for a repository."""
+    sessions = session_manager.get_repo_sessions(repo_id)
+    return SessionListResponse(
+        sessions=[session_to_response(s) for s in sessions],
+        total_count=len(sessions),
+        active_count=sum(1 for s in sessions if s.status == SessionStatus.ACTIVE),
+    )
+
+
+@app.get("/api/sessions/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str):
+    """Get a specific session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session_to_response(session)
+
+
+@app.patch("/api/sessions/{session_id}/rename", response_model=SessionResponse)
+async def rename_session(session_id: str, request: RenameSessionRequest):
+    """Rename a session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session_manager.rename_session(session_id, request.name)
+    session = session_manager.get_session(session_id)
+
+    await manager.broadcast({
+        "type": "session_renamed",
+        "session_id": session_id,
+        "name": request.name,
+    })
+
+    return session_to_response(session)
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a session."""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Stop agent if running
+    if session.agent_id:
+        agent = await registry.get_agent(session.agent_id)
+        if agent and agent.status == AgentStatus.RUNNING:
+            await spawner.stop_agent(session.agent_id)
+
+    session_manager.delete_session(session_id)
+
+    await manager.broadcast({
+        "type": "session_deleted",
+        "session_id": session_id,
+    })
+
+    return {"status": "deleted"}
+
+
 # ==================== Chat API ====================
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -486,17 +609,29 @@ async def chat(request: ChatRequest):
     Send a chat message. Spawns a master agent that orchestrates sub-agents.
     Responses are streamed via WebSocket.
     """
-    from uuid import uuid4
-
     # Validate repo
     if request.repo_id not in connected_repos:
         raise HTTPException(status_code=404, detail="Repository not found")
 
     repo = connected_repos[request.repo_id]
-    if repo.status != "ready":
+    if repo.status not in ["ready", "linked"]:
         raise HTTPException(status_code=400, detail="Repository not ready")
 
-    session_id = str(uuid4())[:8]
+    # Get or create session
+    session_id = request.session_id
+    if session_id:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if session.repo_id != request.repo_id:
+            raise HTTPException(status_code=400, detail="Session belongs to different repo")
+    else:
+        # Create new session
+        session = session_manager.create_session(request.repo_id)
+        session_id = session.id
+
+    # Add user message to session
+    session_manager.add_message(session_id, "user", request.message)
 
     # Create master agent system prompt
     master_system_prompt = """You are an AI coding assistant with access to a multi-agent system.
@@ -525,6 +660,14 @@ Be thorough and complete the task fully before responding."""
         system_prompt=master_system_prompt,
     ))
 
+    # Broadcast session update
+    await manager.broadcast({
+        "type": "session_message",
+        "session_id": session_id,
+        "role": "user",
+        "content": request.message,
+    })
+
     return ChatResponse(status="processing", session_id=session_id)
 
 
@@ -538,6 +681,9 @@ async def _run_chat_agent(
 ):
     """Run the chat agent and stream responses via WebSocket."""
     try:
+        # Link agent to session
+        session_manager.set_status(session_id, SessionStatus.ACTIVE)
+
         # Spawn master agent
         agent = await spawner.spawn_agent(
             name="master",
@@ -550,14 +696,22 @@ async def _run_chat_agent(
             repo_name=repo_name,
         )
 
+        # Link agent to session
+        session_manager.set_agent(session_id, agent.id)
+
+        # Add assistant message placeholder to session
+        session_manager.add_message(session_id, "assistant", "", agent_id=agent.id)
+
         # Broadcast agent spawned
         await manager.broadcast({
             "type": "agent_spawned",
             "agent": agent.to_dict(),
+            "session_id": session_id,
         })
 
         # The spawner handles streaming via registry callbacks
         # Wait for completion by polling agent status
+        response_content = []
         while True:
             current = await registry.get_agent(agent.id)
             if not current or current.status in [AgentStatus.STOPPED, AgentStatus.ERROR]:
@@ -568,18 +722,23 @@ async def _run_chat_agent(
 
         # Send completion
         final_agent = await registry.get_agent(agent.id)
+        success = final_agent.status != AgentStatus.ERROR if final_agent else False
+
+        # Update session status
+        session_manager.set_status(session_id, SessionStatus.IDLE)
+
         await manager.broadcast({
             "type": "chat_complete",
             "session_id": session_id,
-            "success": final_agent.status != AgentStatus.ERROR if final_agent else False,
+            "success": success,
             "error": final_agent.error if final_agent else None,
         })
 
-        # Cleanup: Remove completed agent from registry after 5 seconds
-        await asyncio.sleep(5)
-        await spawner.cleanup(agent.id)
+        # NOTE: Agent wird NICHT mehr automatisch gelöscht!
+        # Session behält Referenz zum Agent für Kontext
 
     except Exception as e:
+        session_manager.set_status(session_id, SessionStatus.IDLE)
         await manager.broadcast({
             "type": "error",
             "session_id": session_id,

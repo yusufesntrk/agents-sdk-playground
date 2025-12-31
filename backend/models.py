@@ -107,12 +107,63 @@ class ChatRequest(BaseModel):
     """Request to send a chat message."""
     message: str
     repo_id: str
+    session_id: Optional[str] = None  # Optional: existierende Session nutzen
 
 
 class ChatResponse(BaseModel):
     """Response from chat endpoint."""
     status: str
     session_id: str
+
+
+# ==================== Session Models ====================
+
+class SessionStatus(str, Enum):
+    """Session Status."""
+    ACTIVE = "active"
+    IDLE = "idle"
+    ARCHIVED = "archived"
+
+
+class ChatMessageResponse(BaseModel):
+    """Eine Chat-Nachricht."""
+    id: str
+    role: str
+    content: str
+    timestamp: str
+    agent_id: Optional[str] = None
+    tool_calls: List[Dict[str, Any]] = []
+
+
+class SessionResponse(BaseModel):
+    """Eine Chat-Session."""
+    id: str
+    repo_id: str
+    name: str
+    status: SessionStatus
+    messages: List[ChatMessageResponse] = []
+    agent_id: Optional[str] = None
+    created_at: str
+    updated_at: str
+    message_count: int = 0
+
+
+class CreateSessionRequest(BaseModel):
+    """Request zum Erstellen einer Session."""
+    repo_id: str
+    name: Optional[str] = None
+
+
+class RenameSessionRequest(BaseModel):
+    """Request zum Umbenennen einer Session."""
+    name: str
+
+
+class SessionListResponse(BaseModel):
+    """Liste von Sessions."""
+    sessions: List[SessionResponse]
+    total_count: int
+    active_count: int
 
 
 # ==================== Repository Models ====================

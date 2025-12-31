@@ -16,6 +16,11 @@ class AgentControlPanel {
         this.toolCount = 0;
         this.githubRepos = [];
 
+        // Session Management
+        this.sessions = new Map();  // session_id → session
+        this.activeSessionId = null;
+        this.sessionMessages = new Map();  // session_id → messages[]
+
         this.init();
     }
 
@@ -109,7 +114,163 @@ class AgentControlPanel {
     selectRepo(repoId) {
         this.activeRepoId = repoId || null;
         this.updateRepoStatus();
+
+        // Load sessions for this repo
+        if (repoId) {
+            this.loadSessions(repoId);
+        } else {
+            this.sessions.clear();
+            this.activeSessionId = null;
+            this.renderSessionTabs();
+            this.clearChat();
+        }
+
         this.updateSendButton();
+    }
+
+    // ==================== Session Management ====================
+
+    async loadSessions(repoId) {
+        try {
+            const response = await fetch(`/api/sessions/repo/${repoId}`);
+            if (response.ok) {
+                const data = await response.json();
+                this.sessions.clear();
+                data.sessions.forEach(session => {
+                    this.sessions.set(session.id, session);
+                    // Cache messages
+                    this.sessionMessages.set(session.id, session.messages || []);
+                });
+
+                this.renderSessionTabs();
+
+                // Auto-select first session or create new one
+                if (this.sessions.size > 0) {
+                    const firstSession = this.sessions.values().next().value;
+                    this.switchSession(firstSession.id);
+                } else {
+                    // Create initial session
+                    await this.createSession();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load sessions:', error);
+        }
+    }
+
+    async createSession(name = null) {
+        if (!this.activeRepoId) return;
+
+        try {
+            const response = await fetch('/api/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    repo_id: this.activeRepoId,
+                    name: name
+                })
+            });
+
+            if (response.ok) {
+                const session = await response.json();
+                this.sessions.set(session.id, session);
+                this.sessionMessages.set(session.id, []);
+                this.renderSessionTabs();
+                this.switchSession(session.id);
+            }
+        } catch (error) {
+            console.error('Failed to create session:', error);
+        }
+    }
+
+    switchSession(sessionId) {
+        if (this.activeSessionId === sessionId) return;
+
+        // Save current messages if switching away
+        if (this.activeSessionId) {
+            // Messages are already in sessionMessages via handleChatResponse
+        }
+
+        this.activeSessionId = sessionId;
+        this.renderSessionTabs();
+
+        // Load messages for this session
+        this.clearChat();
+        const messages = this.sessionMessages.get(sessionId) || [];
+        messages.forEach(msg => {
+            this.addMessage(msg.content, msg.role, false);
+        });
+
+        this.updateSendButton();
+    }
+
+    renderSessionTabs() {
+        const container = document.getElementById('session-tabs');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        this.sessions.forEach((session, id) => {
+            const tab = document.createElement('div');
+            tab.className = `session-tab ${id === this.activeSessionId ? 'active' : ''}`;
+            tab.dataset.sessionId = id;
+
+            const statusDot = session.status === 'active' ? '<span class="status-dot active"></span>' : '';
+
+            tab.innerHTML = `
+                ${statusDot}
+                <span class="tab-name">${this.escapeHtml(session.name)}</span>
+                <button class="tab-close" title="Close">&times;</button>
+            `;
+
+            tab.querySelector('.tab-name').onclick = () => this.switchSession(id);
+            tab.querySelector('.tab-close').onclick = (e) => {
+                e.stopPropagation();
+                this.deleteSession(id);
+            };
+
+            container.appendChild(tab);
+        });
+    }
+
+    async deleteSession(sessionId) {
+        if (this.sessions.size <= 1) {
+            alert('Cannot delete the last session');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/sessions/${sessionId}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                this.sessions.delete(sessionId);
+                this.sessionMessages.delete(sessionId);
+
+                // Switch to another session
+                if (this.activeSessionId === sessionId) {
+                    const nextSession = this.sessions.values().next().value;
+                    if (nextSession) {
+                        this.switchSession(nextSession.id);
+                    }
+                }
+
+                this.renderSessionTabs();
+            }
+        } catch (error) {
+            console.error('Failed to delete session:', error);
+        }
+    }
+
+    clearChat() {
+        const container = document.getElementById('chat-messages');
+        container.innerHTML = `
+            <div class="welcome-message">
+                <h2>Agent Control Panel</h2>
+                <p>Select a repository and start chatting with your AI coding assistant.</p>
+            </div>
+        `;
     }
 
     updateRepoStatus() {
@@ -324,9 +485,39 @@ class AgentControlPanel {
             case 'repo_update':
                 this.handleRepoUpdate(message);
                 break;
+            case 'session_created':
+                this.handleSessionCreated(message);
+                break;
+            case 'session_deleted':
+                this.handleSessionDeleted(message);
+                break;
             case 'error':
                 this.handleError(message);
                 break;
+        }
+    }
+
+    handleSessionCreated(message) {
+        if (message.session && message.session.repo_id === this.activeRepoId) {
+            this.sessions.set(message.session.id, message.session);
+            this.sessionMessages.set(message.session.id, []);
+            this.renderSessionTabs();
+        }
+    }
+
+    handleSessionDeleted(message) {
+        if (message.session_id) {
+            this.sessions.delete(message.session_id);
+            this.sessionMessages.delete(message.session_id);
+
+            if (this.activeSessionId === message.session_id) {
+                const nextSession = this.sessions.values().next().value;
+                if (nextSession) {
+                    this.switchSession(nextSession.id);
+                }
+            }
+
+            this.renderSessionTabs();
         }
     }
 
@@ -353,8 +544,26 @@ class AgentControlPanel {
         this.updateSendButton();
 
         if (this.currentResponse) {
+            // Save assistant response to session messages
+            const content = this.currentResponse.querySelector('.message-content').textContent;
+            if (this.activeSessionId && content) {
+                const messages = this.sessionMessages.get(this.activeSessionId) || [];
+                messages.push({ role: 'assistant', content: content });
+                this.sessionMessages.set(this.activeSessionId, messages);
+            }
+
             this.currentResponse.classList.remove('streaming');
             this.currentResponse = null;
+        }
+
+        // Update session status in tabs
+        if (message.session_id) {
+            const session = this.sessions.get(message.session_id);
+            if (session) {
+                session.status = 'idle';
+                this.sessions.set(message.session_id, session);
+                this.renderSessionTabs();
+            }
         }
 
         // Show activity indicator
@@ -459,6 +668,11 @@ class AgentControlPanel {
             return;
         }
 
+        // Check if session exists
+        if (!this.activeSessionId) {
+            await this.createSession();
+        }
+
         // Clear input
         input.value = '';
         this.autoResizeInput();
@@ -470,6 +684,11 @@ class AgentControlPanel {
         // Add user message
         this.addMessage(text, 'user');
 
+        // Store in session messages
+        const messages = this.sessionMessages.get(this.activeSessionId) || [];
+        messages.push({ role: 'user', content: text });
+        this.sessionMessages.set(this.activeSessionId, messages);
+
         // Start processing
         this.isProcessing = true;
         this.updateSendButton();
@@ -478,20 +697,28 @@ class AgentControlPanel {
         // Create assistant message placeholder
         this.currentResponse = this.addMessage('', 'assistant', true);
 
-        // Send to backend
+        // Send to backend with session_id
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: text,
-                    repo_id: this.activeRepoId
+                    repo_id: this.activeRepoId,
+                    session_id: this.activeSessionId
                 })
             });
 
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.detail || 'Failed to send message');
+            }
+
+            // Update session_id if new session was created
+            const data = await response.json();
+            if (data.session_id && data.session_id !== this.activeSessionId) {
+                this.activeSessionId = data.session_id;
+                await this.loadSessions(this.activeRepoId);
             }
         } catch (error) {
             console.error('Failed to send message:', error);
@@ -652,6 +879,12 @@ class AgentControlPanel {
 
         // Connect repo
         document.getElementById('connect-repo-btn').addEventListener('click', () => this.openModal());
+
+        // New session button
+        const newSessionBtn = document.getElementById('new-session-btn');
+        if (newSessionBtn) {
+            newSessionBtn.addEventListener('click', () => this.createSession());
+        }
 
         // Modal
         document.getElementById('modal-close').addEventListener('click', () => this.closeModal());
