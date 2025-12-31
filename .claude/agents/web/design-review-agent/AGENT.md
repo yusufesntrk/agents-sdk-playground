@@ -1,7 +1,7 @@
 ---
 name: design-review-agent
 description: Use this agent to validate website components against UX patterns, design guidelines, and frontend best practices. Runs after page-builder-agent.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools: Read, Write, Edit, Bash, Grep, Glob
 
 # Agent Chain Configuration (Web)
 chain_order: 2

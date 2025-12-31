@@ -43,7 +43,7 @@ class PlannerAgent:
         """Erstellt die Agent Options."""
         return ClaudeCodeOptions(
             system_prompt=self.system_prompt,
-            allowed_tools=["Read", "Glob", "Grep"],
+            allowed_tools=["Read", "Glob", "Grep", "mcp__playwright__*"],
             cwd=self.working_dir,
         )
 

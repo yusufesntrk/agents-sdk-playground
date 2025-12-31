@@ -22,11 +22,13 @@ triggers: ["after:page-builder-agent", "design-review-request"]
 **Bevorzugte Methode - Playwright MCP Tools:**
 
 ```
-mcp__playwright__playwright_navigate: url="http://localhost:5173"
-mcp__playwright__playwright_screenshot: name="design-review", fullPage=true
+mcp__playwright__playwright_navigate: url="http://localhost:5173", headless=true
+mcp__playwright__playwright_screenshot: name="design-review", fullPage=true, downloadsDir=".screenshots", savePng=true
 mcp__playwright__playwright_resize: device="iPhone 13"
-mcp__playwright__playwright_screenshot: name="design-mobile"
+mcp__playwright__playwright_screenshot: name="design-mobile", downloadsDir=".screenshots", savePng=true
 ```
+
+**WICHTIG:** Screenshots IMMER in `.screenshots/` speichern, NIEMALS in ~/Downloads!
 
 ### Verfügbare Playwright MCP Tools:
 - `mcp__playwright__playwright_navigate` - Zu URL navigieren

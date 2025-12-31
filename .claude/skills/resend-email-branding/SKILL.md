@@ -183,10 +183,11 @@ interface AuthEmailPayload {
 }
 
 // Header mit Logo
+// WICHTIG: height: auto verhindert Verzerrung!
 const getHeader = () => `
   <tr>
     <td style="background: #ffffff; padding: 32px 40px; text-align: center; border-bottom: 1px solid #e9ecef;">
-      <img src="${LOGO_URL}" alt="${SENDER_NAME}" width="220" style="display: block; margin: 0 auto;" />
+      <img src="${LOGO_URL}" alt="${SENDER_NAME}" width="200" style="display: block; margin: 0 auto; max-width: 100%; height: auto;" />
     </td>
   </tr>`;
 
@@ -403,6 +404,11 @@ supabase functions logs send-auth-email --project-ref PROJECT_REF
 - PNG Format (kein SVG!)
 - Größe: max 100KB empfohlen
 
+### Logo ist verzerrt/gestaucht
+- **Ursache:** Feste `width` UND `height` Attribute mit falschem Aspect Ratio
+- **Lösung:** Nur `width` setzen, `height: auto` im Style
+- Dimensionen prüfen: `sips -g pixelWidth -g pixelHeight logo.png`
+
 ### Edge Function Fehler
 - Logs prüfen: `supabase functions logs`
 - RESEND_API_KEY Secret gesetzt?
@@ -416,9 +422,27 @@ supabase functions logs send-auth-email --project-ref PROJECT_REF
 ## Best Practices
 
 ### Logo
-- 3x Auflösung für Retina (z.B. 960px breit, angezeigt bei 320px)
+- 3x Auflösung für Retina (z.B. 960px breit, angezeigt bei 200px)
 - PNG mit transparentem Hintergrund
 - Auf CDN/Storage hosten (nicht Base64)
+- **NIEMALS feste `height` setzen** - immer `height: auto` im Style!
+- Prüfe Dimensionen vor dem Einbetten:
+  ```bash
+  # Dimensionen prüfen
+  sips -g pixelWidth -g pixelHeight logo.png
+  # Beispiel: 960 x 305 → Aspect Ratio 3.15:1
+  # Bei width="200" → height wird automatisch ~64px
+  ```
+
+### Logo img-Tag (korrekt)
+```html
+<!-- ✅ RICHTIG - height: auto skaliert proportional -->
+<img src="logo.png" width="200"
+     style="display: block; margin: 0 auto; max-width: 100%; height: auto;" />
+
+<!-- ❌ FALSCH - feste height verzerrt das Bild! -->
+<img src="logo.png" width="220" height="45" />
+```
 
 ### Templates
 - Inline CSS (kein externes Stylesheet)

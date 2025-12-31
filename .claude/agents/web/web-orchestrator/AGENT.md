@@ -1,7 +1,7 @@
 ---
 name: web-orchestrator
 description: Multi-Agent Orchestrator for website development. Coordinates Page Builder, Design Review, and SEO Audit agents in sequence. Use /web-orchestrate command.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Task"]
+tools: Read, Write, Edit, Bash, Grep, Glob, Task
 
 # Agent Chain Configuration (Web)
 chain_order: 0

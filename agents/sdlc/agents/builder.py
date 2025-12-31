@@ -43,7 +43,7 @@ class BuilderAgent:
         """Erstellt die Agent Options."""
         return ClaudeCodeOptions(
             system_prompt=self.system_prompt,
-            allowed_tools=["Read", "Write", "Edit", "Bash"],
+            allowed_tools=["Read", "Write", "Edit", "Bash", "mcp__playwright__*"],
             cwd=self.working_dir,
         )
 

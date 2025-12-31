@@ -1,7 +1,7 @@
 ---
 name: seo-audit-agent
 description: Use this agent to audit website pages for SEO compliance including meta tags, structured data, technical SEO, and content optimization. Runs after design-review-agent.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools: Read, Write, Edit, Bash, Grep, Glob
 
 # Agent Chain Configuration (Web)
 chain_order: 3

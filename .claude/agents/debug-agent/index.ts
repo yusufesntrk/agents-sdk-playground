@@ -102,8 +102,10 @@ export class DebugAgent extends BaseAgent {
       await page.goto(`http://localhost:5173${input.page}`);
       this.logStep('Page loaded');
 
-      // Take screenshot
-      const screenshotPath = `debug-${Date.now()}.png`;
+      // Take screenshot - IMMER in .screenshots/ speichern!
+      const screenshotDir = '.screenshots';
+      const screenshotPath = `${screenshotDir}/debug-${Date.now()}.png`;
+      // Ensure directory exists (in real impl: use fs.mkdirSync)
       await page.screenshot({ path: screenshotPath });
       output.screenshots.push(screenshotPath);
 

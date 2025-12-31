@@ -3,57 +3,154 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SDLC Multi-Agent System</title>
+    <title>Agent Control Panel</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <header>
-        <h1>🤖 SDLC Multi-Agent System</h1>
-        <div class="stats">
-            <span id="message-count">Messages: 0</span>
-            <span id="tool-count">Tool Calls: 0</span>
-            <span id="connection-status">⚪ Disconnected</span>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Repo Selection -->
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <h2>Repository</h2>
+                    <button id="connect-repo-btn" class="btn-icon" title="Connect Repo" disabled>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2H9v6a1 1 0 1 1-2 0V9H1a1 1 0 0 1 0-2h6V1a1 1 0 0 1 1-1z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="repo-selector" class="repo-selector">
+                    <select id="active-repo">
+                        <option value="">Select a repository...</option>
+                    </select>
+                    <div id="repo-status" class="repo-status"></div>
+                </div>
+            </div>
+
+            <!-- Agent Tree -->
+            <div class="sidebar-section agents-section">
+                <div class="section-header">
+                    <h2>Agents</h2>
+                    <span id="agent-count" class="agent-count">0</span>
+                </div>
+                <div id="agent-tree" class="agent-tree">
+                    <p class="empty-state">No active agents</p>
+                </div>
+            </div>
+
+            <!-- User -->
+            <div class="sidebar-footer">
+                <div id="auth-section">
+                    <a href="/auth/login" id="login-btn" class="btn btn-primary btn-block">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                        </svg>
+                        Login with GitHub
+                    </a>
+                    <div id="user-info" class="user-info hidden">
+                        <img id="user-avatar" src="" alt="Avatar" class="avatar">
+                        <span id="user-name"></span>
+                        <a href="/auth/logout" class="btn-icon" title="Logout">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                <polyline points="16 17 21 12 16 7"/>
+                                <line x1="21" y1="12" x2="9" y2="12"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <!-- Chat Header -->
+            <header class="chat-header">
+                <div class="chat-title">
+                    <h1>Claude Code Agent</h1>
+                    <span id="connection-status" class="status-badge">Connecting...</span>
+                </div>
+                <div class="chat-stats">
+                    <span id="message-count">0 messages</span>
+                    <span id="tool-count">0 tool calls</span>
+                </div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div id="chat-messages" class="chat-messages">
+                <div class="welcome-message">
+                    <h2>👋 Welcome to Agent Control Panel</h2>
+                    <p>Select a repository and start chatting. I'll use multiple specialized agents to help you with your tasks.</p>
+                    <div class="capabilities">
+                        <div class="capability">
+                            <span class="capability-icon">📝</span>
+                            <span>Planning & Architecture</span>
+                        </div>
+                        <div class="capability">
+                            <span class="capability-icon">🛠️</span>
+                            <span>Code Implementation</span>
+                        </div>
+                        <div class="capability">
+                            <span class="capability-icon">🔍</span>
+                            <span>Code Review</span>
+                        </div>
+                        <div class="capability">
+                            <span class="capability-icon">🧪</span>
+                            <span>Testing</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Activity Panel (collapsible) -->
+            <div id="activity-panel" class="activity-panel collapsed">
+                <div class="activity-header" onclick="app.toggleActivityPanel()">
+                    <span>Agent Activity</span>
+                    <span id="activity-indicator" class="activity-indicator"></span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M4.5 5.5L8 9l3.5-3.5"/>
+                    </svg>
+                </div>
+                <div class="activity-content" id="activity-feed"></div>
+            </div>
+
+            <!-- Chat Input -->
+            <div class="chat-input-container">
+                <div class="chat-input-wrapper">
+                    <textarea
+                        id="chat-input"
+                        placeholder="Describe what you want to build or change..."
+                        rows="1"
+                    ></textarea>
+                    <button id="send-btn" class="send-btn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">
+                    <span>Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Connect Repo Modal -->
+    <div id="repo-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Connect Repository</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="repo-search" placeholder="Search repositories...">
+                <div id="github-repos" class="github-repo-list">
+                    <p class="loading">Loading repositories...</p>
+                </div>
+            </div>
         </div>
-    </header>
-
-    <main>
-        <!-- Task Creation -->
-        <section class="create-task">
-            <input type="text" id="task-title" placeholder="Task Title">
-            <textarea id="task-description" placeholder="Task Description (what should be done?)"></textarea>
-            <button id="create-btn">Create Task</button>
-        </section>
-
-        <!-- Kanban Board -->
-        <section class="board">
-            <div class="column" data-status="todo">
-                <h2>📋 Todo</h2>
-                <div class="tasks" id="todo-tasks"></div>
-            </div>
-            <div class="column" data-status="planning">
-                <h2>📝 Planning</h2>
-                <div class="tasks" id="planning-tasks"></div>
-            </div>
-            <div class="column" data-status="building">
-                <h2>🔨 Building</h2>
-                <div class="tasks" id="building-tasks"></div>
-            </div>
-            <div class="column" data-status="reviewing">
-                <h2>🔍 Reviewing</h2>
-                <div class="tasks" id="reviewing-tasks"></div>
-            </div>
-            <div class="column" data-status="shipped">
-                <h2>🚀 Shipped</h2>
-                <div class="tasks" id="shipped-tasks"></div>
-            </div>
-        </section>
-
-        <!-- Agent Activity Log -->
-        <section class="activity-log">
-            <h2>Agent Activity</h2>
-            <div id="activity-feed"></div>
-        </section>
-    </main>
+    </div>
 
     <script src="/static/app.js"></script>
 </body>

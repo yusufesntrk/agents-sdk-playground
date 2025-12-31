@@ -1,7 +1,7 @@
 ---
 name: page-builder-agent
 description: Use this agent when building or modifying website pages, sections, or components. Specialized for static websites with focus on design, animations, and content structure.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools: Read, Write, Edit, Bash, Grep, Glob
 
 # Agent Chain Configuration (Web)
 chain_order: 1

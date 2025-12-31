@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const BASE_URL = 'http://localhost:5173';
-const SCREENSHOT_DIR = 'qa-screenshots/visual-review';
+const SCREENSHOT_DIR = '.screenshots'; // IMMER in .screenshots/ speichern!
 const AUTH_STATE = 'tests/.auth/state.json';
 
 async function takeScreenshot(route: string, action?: string): Promise<string> {
