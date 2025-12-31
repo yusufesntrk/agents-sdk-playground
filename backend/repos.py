@@ -2,9 +2,11 @@
 Repository Management für das Agent Control Panel.
 
 Verwaltet GitHub Repos: Listen, Clonen, Pull, Push.
+Mit JSON-Persistenz für verbundene Repos.
 """
 
 import asyncio
+import json
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,9 +24,65 @@ from .models import GitHubRepo, ConnectedRepo, ConnectRepoRequest
 REPOS_DIR = Path.home() / ".agent-panel" / "repos"
 REPOS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Persistenz-Datei für verbundene Repos
+REPOS_FILE = Path.home() / ".agent-panel" / "connected_repos.json"
 
-# In-Memory Storage für verbundene Repos
-connected_repos: dict[str, ConnectedRepo] = {}
+
+def _load_repos() -> dict[str, ConnectedRepo]:
+    """Lädt verbundene Repos aus JSON-Datei."""
+    if not REPOS_FILE.exists():
+        return {}
+
+    try:
+        with open(REPOS_FILE) as f:
+            data = json.load(f)
+
+        repos = {}
+        for repo_id, repo_data in data.items():
+            # Prüfen ob lokaler Pfad noch existiert
+            local_path = repo_data.get("local_path", "")
+            if local_path and not Path(local_path).exists():
+                print(f"Skipping repo {repo_id}: path {local_path} no longer exists")
+                continue
+
+            repos[repo_id] = ConnectedRepo(
+                id=repo_data["id"],
+                github_id=repo_data["github_id"],
+                name=repo_data["name"],
+                full_name=repo_data["full_name"],
+                local_path=local_path,
+                status=repo_data.get("status", "ready"),
+                error=repo_data.get("error"),
+                is_linked=repo_data.get("is_linked", False),
+            )
+        return repos
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Warning: Failed to load repos file: {e}")
+        return {}
+
+
+def _save_repos() -> None:
+    """Speichert verbundene Repos in JSON-Datei."""
+    data = {}
+    for repo_id, repo in connected_repos.items():
+        data[repo_id] = {
+            "id": repo.id,
+            "github_id": repo.github_id,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "local_path": repo.local_path,
+            "status": repo.status,
+            "error": repo.error,
+            "is_linked": repo.is_linked,
+        }
+
+    REPOS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(REPOS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# In-Memory Storage für verbundene Repos (geladen aus JSON)
+connected_repos: dict[str, ConnectedRepo] = _load_repos()
 
 
 def get_github_client(access_token: str) -> Github:
@@ -196,6 +254,7 @@ async def connect_repo(request: Request, data: ConnectRepoRequest) -> ConnectedR
             is_linked=True
         )
         connected_repos[repo_id] = repo
+        _save_repos()  # Persistieren
         return repo
 
     # Option 2: Von GitHub clonen
@@ -218,6 +277,7 @@ async def connect_repo(request: Request, data: ConnectRepoRequest) -> ConnectedR
         repo.status = "error"
         repo.error = str(e)
 
+    _save_repos()  # Persistieren
     return repo
 
 
@@ -243,6 +303,7 @@ async def disconnect_repo(request: Request, repo_id: str):
             shutil.rmtree(local_path)
 
     del connected_repos[repo_id]
+    _save_repos()  # Persistieren
     return {"status": "disconnected", "files_deleted": not repo.is_linked}
 
 
