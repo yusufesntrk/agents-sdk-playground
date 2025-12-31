@@ -28,37 +28,122 @@ REPOS_DIR.mkdir(parents=True, exist_ok=True)
 REPOS_FILE = Path.home() / ".agent-panel" / "connected_repos.json"
 
 
-def _load_repos() -> dict[str, ConnectedRepo]:
-    """Lädt verbundene Repos aus JSON-Datei."""
-    if not REPOS_FILE.exists():
-        return {}
+def _migrate_existing_clones() -> dict[str, ConnectedRepo]:
+    """
+    Migration: Erkennt bereits geclonte Repos im REPOS_DIR.
 
-    try:
-        with open(REPOS_FILE) as f:
-            data = json.load(f)
+    Folder-Format: username_reponame (z.B. yusufesntrk_leyaltech-website)
+    """
+    repos = {}
 
-        repos = {}
-        for repo_id, repo_data in data.items():
-            # Prüfen ob lokaler Pfad noch existiert
-            local_path = repo_data.get("local_path", "")
-            if local_path and not Path(local_path).exists():
-                print(f"Skipping repo {repo_id}: path {local_path} no longer exists")
-                continue
-
-            repos[repo_id] = ConnectedRepo(
-                id=repo_data["id"],
-                github_id=repo_data["github_id"],
-                name=repo_data["name"],
-                full_name=repo_data["full_name"],
-                local_path=local_path,
-                status=repo_data.get("status", "ready"),
-                error=repo_data.get("error"),
-                is_linked=repo_data.get("is_linked", False),
-            )
+    if not REPOS_DIR.exists():
         return repos
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"Warning: Failed to load repos file: {e}")
-        return {}
+
+    for folder in REPOS_DIR.iterdir():
+        if not folder.is_dir():
+            continue
+        if not (folder / ".git").exists():
+            continue
+
+        # Parse folder name: username_reponame
+        parts = folder.name.split("_", 1)
+        if len(parts) != 2:
+            continue
+
+        username, reponame = parts
+        full_name = f"{username}/{reponame}"
+        repo_id = str(uuid4())[:8]
+
+        # GitHub ID aus git config extrahieren (optional)
+        github_id = 0
+        try:
+            import re
+            config_file = folder / ".git" / "config"
+            if config_file.exists():
+                config_text = config_file.read_text()
+                # Versuche repo ID aus URL zu parsen (nicht möglich, also 0)
+        except Exception:
+            pass
+
+        repos[repo_id] = ConnectedRepo(
+            id=repo_id,
+            github_id=github_id,
+            name=reponame,
+            full_name=full_name,
+            local_path=str(folder),
+            status="ready",
+            is_linked=False,
+        )
+        print(f"Migrated existing clone: {full_name} -> {folder}")
+
+    return repos
+
+
+def _load_repos() -> dict[str, ConnectedRepo]:
+    """Lädt verbundene Repos aus JSON-Datei oder migriert existierende Clones."""
+    # Zuerst aus JSON laden
+    if REPOS_FILE.exists():
+        try:
+            with open(REPOS_FILE) as f:
+                data = json.load(f)
+
+            repos = {}
+            for repo_id, repo_data in data.items():
+                # Prüfen ob lokaler Pfad noch existiert
+                local_path = repo_data.get("local_path", "")
+                if local_path and not Path(local_path).exists():
+                    print(f"Skipping repo {repo_id}: path {local_path} no longer exists")
+                    continue
+
+                repos[repo_id] = ConnectedRepo(
+                    id=repo_data["id"],
+                    github_id=repo_data["github_id"],
+                    name=repo_data["name"],
+                    full_name=repo_data["full_name"],
+                    local_path=local_path,
+                    status=repo_data.get("status", "ready"),
+                    error=repo_data.get("error"),
+                    is_linked=repo_data.get("is_linked", False),
+                )
+            return repos
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Warning: Failed to load repos file: {e}")
+
+    # Fallback: Migriere existierende Clones
+    repos = _migrate_existing_clones()
+    if repos:
+        print(f"Migrated {len(repos)} existing cloned repos")
+
+    return repos
+
+
+def _save_repos_dict(repos: dict[str, ConnectedRepo]) -> None:
+    """Speichert übergebene Repos in JSON-Datei (für Migration)."""
+    data = {}
+    for repo_id, repo in repos.items():
+        data[repo_id] = {
+            "id": repo.id,
+            "github_id": repo.github_id,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "local_path": repo.local_path,
+            "status": repo.status,
+            "error": repo.error,
+            "is_linked": repo.is_linked,
+        }
+
+    REPOS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(REPOS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# In-Memory Storage für verbundene Repos (geladen aus JSON)
+connected_repos: dict[str, ConnectedRepo] = _load_repos()
+
+# Nach dem Laden: Migrierte Repos speichern falls nötig
+if connected_repos and not REPOS_FILE.exists():
+    _save_repos_dict(connected_repos)
+    print("Saved migrated repos to JSON")
 
 
 def _save_repos() -> None:
